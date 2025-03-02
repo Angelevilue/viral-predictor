@@ -7,8 +7,10 @@ import numpy as np
 import asyncio
 from openai import AsyncOpenAI
 
+st.set_page_config(layout="wide")
 st.title("Viral Predictor")
 st.write("**Simulate how users react to your content so you know it'll go viral before you post**")
+# set page to wide
 def calc_confidence(users, vote_a, vote_b):
     if vote_a == 0 and vote_b == 0:
         return "-", 0.0
@@ -52,7 +54,7 @@ input_a, input_b = st.columns(2)
 input_a.write("### Version A")
 version_a = input_a.text_area("Enter your content here", key="version_a", value = "", height=200)
 input_b.write("### Version B")
-version_b = input_b.text_area("Enter your content here", key="version_b", value = "", height=200)
+version_b = input_b.text_area("Enter your content here", key="version_b", value = "", height=200 )
 platform = input_a.selectbox("Platform", ["Twitter", "TikTok", "Instagram", "LinkedIn", "Facebook", "Hacker News", "Reddit", "Blog Post"])
 max_users = input_b.number_input("Max Users", value=20, step=10)
 api_key = input_a.text_input("OpenRouter API Key", value="") # TODO: remove this
