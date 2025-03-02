@@ -2,5 +2,6 @@ streamlit
 openai
 scipy
 statsmodels
-numpy==1.23.5
-pandas==1.5.3
+numpy<2.0.0
+pandas
+pyarrow<15.0.0
