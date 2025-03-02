@@ -4,9 +4,11 @@ import json
 from scipy import stats
 from statsmodels.stats.proportion import proportions_ztest
 import numpy as np
+import asyncio
+from openai import AsyncOpenAI
 
 st.title("Viral Predictor")
-st.write("##### Simulate how users react to your content so you know it'll go viral before you post")
+st.write("**Simulate how users react to your content so you know it'll go viral before you post**")
 def calc_confidence(users, vote_a, vote_b):
     if vote_a == 0 and vote_b == 0:
         return "-", 0.0
@@ -40,136 +42,139 @@ def calc_confidence(users, vote_a, vote_b):
         else:
             return "B", (vote_b / total_votes) * 100
 
+chart_data = {
+    "engagement_a": [0],
+    "engagement_b": [0],
+    "users": [0]
+}
+standard_batch_size = 5
 input_a, input_b = st.columns(2)
 input_a.write("### Version A")
 version_a = input_a.text_area("Enter your content here", key="version_a", value = "", height=200)
 input_b.write("### Version B")
 version_b = input_b.text_area("Enter your content here", key="version_b", value = "", height=200)
 platform = input_a.selectbox("Platform", ["Twitter", "TikTok", "Instagram", "LinkedIn", "Facebook", "Hacker News", "Reddit", "Blog Post"])
-max_users = input_b.number_input("Max Users", value=10)
+max_users = input_b.number_input("Max Users", value=20, step=10)
 api_key = input_a.text_input("OpenRouter API Key", value="") # TODO: remove this
 model = input_b.text_input("Model", value="openai/gpt-4o")
 predict_button = st.button("Predict")
-chart_empty = st.empty()
-chart_data = {
-    "engagement_a": [0],
-    "engagement_b": [0],
-    "users": [0]
-}
-chart_empty.line_chart(chart_data, x="users", y=["engagement_a", "engagement_b"], )
 
-client = OpenAI(
-  base_url="https://openrouter.ai/api/v1",
-  api_key=api_key,
+st.write("### Cumulative Engagement")
+chart_empty = st.empty()
+chart_empty.line_chart(chart_data, x="users", y=["engagement_a", "engagement_b"])
+
+client = AsyncOpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=api_key,
 )
 
+st.write("### Statistical Confidence")
 c = st.container()
 like_col, comment_col, share_col, quote_col = c.columns(4)
-like_col.write("### Likes")
+like_col.write("##### Likes")
 like_empty = like_col.empty()
 like_empty.write("0% Vers. ?")
-comment_col.write("### Comments")
+comment_col.write("##### Comments")
 comment_empty = comment_col.empty()
 comment_empty.write("0% Vers. ?")
-share_col.write("### Shares")
+share_col.write("##### Shares")
 share_empty = share_col.empty()
 share_empty.write("0% Vers. ?")
-quote_col.write("### Quotes")
+quote_col.write("##### Quotes")
 quote_empty = quote_col.empty()
 quote_empty.write("0% Vers. ?")
 
-if predict_button:
-    # Initialize counters
-    users = 0
-
-    like_a = 0
-    comment_a = 0
-    share_a = 0
-    quote_a = 0
-    total_a = 0
-
-    like_b = 0
-    comment_b = 0
-    share_b = 0
-    quote_b = 0
-    total_b = 0
-
-    prompt_a = f"""Imagine you are a random user on {platform}. You came across the following content:
-    '''
-    {version_a}
-    '''
-    Decide whether to like, comment, share (retweet, repost, etc.), quote, or not.
-    Output your decision as a JSON object with the following fields:
-    - like: bool
-    - comment: bool
-    - share: bool
-    - quote: bool"""
-
-    prompt_b = f"""Imagine you are a random user on {platform}. You came across the following content:
-    '''
-    {version_b}
-    '''
-    Decide whether to like, comment, share (retweet, repost, etc.), quote, or not.
-    Output your decision as a JSON object with the following fields:
-    - like: bool
-    - comment: bool
-    - share: bool
-    - quote: bool"""
-
-
-    while users < max_users:
-        users += 1
-
-        completion_a = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
+async def get_prediction(prompt, model):
+    completion = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {
                 "role": "user",
-                "content": prompt_a
-                }
-            ],
-            response_format={"type": "json_object"}
-        )
-        prediction_a = completion_a.choices[0].message.content
-        prediction_a = json.loads(prediction_a)
-        like_a += prediction_a["like"]
-        comment_a += prediction_a["comment"]
-        share_a += prediction_a["share"]
-        quote_a += prediction_a["quote"]
-        total_a = like_a + comment_a + share_a + quote_a
+                "content": prompt
+            }
+        ],
+        response_format={"type": "json_object"}
+    )
+    prediction = completion.choices[0].message.content
+    return json.loads(prediction)
 
-        completion_b = client.chat.completions.create(
-            model=model,
-            messages=[
-                {
-                "role": "user",
-                "content": prompt_b
-                }
-            ],
-            response_format={"type": "json_object"}
-        )
-        prediction_b = completion_b.choices[0].message.content
-        prediction_b = json.loads(prediction_b)
-        like_b += prediction_b["like"]
-        comment_b += prediction_b["comment"]
-        share_b += prediction_b["share"]
-        quote_b += prediction_b["quote"]
-        total_b = like_b + comment_b + share_b + quote_b
+async def main():
+    if predict_button:
+        # Initialize counters
+        users = 0
+        like_a = comment_a = share_a = quote_a = total_a = 0
+        like_b = comment_b = share_b = quote_b = total_b = 0
 
-        chart_data["engagement_a"].append(total_a)
-        chart_data["engagement_b"].append(total_b)
-        chart_data["users"].append(users)
-        chart_empty.line_chart(chart_data, x="users", y=["engagement_a", "engagement_b"])
+        prompt_a = f"""You are scrolling through {platform} and came across the following content:
+        '''
+        {version_a}
+        '''
+        Decide whether to like, comment, share (retweet, repost, etc.), or quote.
+        Output your decision as a JSON object with the following fields:
+        - like: bool
+        - comment: bool
+        - share: bool
+        - quote: bool"""
 
-        # Calculate statistical confidence
-        like_winner, like_confidence = calc_confidence(users, like_a, like_b)
-        like_empty.write(f"{like_confidence:.2f}% Vers. {like_winner}")
+        prompt_b = f"""You are scrolling through {platform} and came across the following content:
+        '''
+        {version_b}
+        '''
+        Decide whether to like, comment, share (retweet, repost, etc.), or quote.
+        Output your decision as a JSON object with the following fields:
+        - like: bool
+        - comment: bool
+        - share: bool
+        - quote: bool"""
 
-        comment_winner, comment_confidence = calc_confidence(users, comment_a, comment_b)
-        comment_empty.write(f"{comment_confidence:.2f}% Vers. {comment_winner}")
+        while users < max_users:
+            # 每次预测5个用户（或剩余的用户数）
+            batch_size = min(standard_batch_size, max_users - users)
+            predictions_a = []
+            predictions_b = []
+            
+            # 并行获取多个用户的预测
+            tasks_a = [get_prediction(prompt_a, model) for _ in range(batch_size)]
+            tasks_b = [get_prediction(prompt_b, model) for _ in range(batch_size)]
+            
+            predictions_a = await asyncio.gather(*tasks_a)
+            predictions_b = await asyncio.gather(*tasks_b)
+            
+            # 处理这批预测结果
+            for pred_a, pred_b in zip(predictions_a, predictions_b):
+                users += 1
+                
+                like_a += pred_a["like"]
+                comment_a += pred_a["comment"]
+                share_a += pred_a["share"]
+                quote_a += pred_a["quote"]
+                total_a = like_a + comment_a + share_a + quote_a
 
-        share_winner, share_confidence = calc_confidence(users, share_a, share_b)
-        share_empty.write(f"{share_confidence:.2f}% Vers. {share_winner}")
+                like_b += pred_b["like"]
+                comment_b += pred_b["comment"]
+                share_b += pred_b["share"]
+                quote_b += pred_b["quote"]
+                total_b = like_b + comment_b + share_b + quote_b
 
-        quote_winner, quote_confidence = calc_confidence(users, quote_a, quote_b)
-        quote_empty.write(f"{quote_confidence:.2f}% Vers. {quote_winner}")
+                chart_data["engagement_a"].append(total_a)
+                chart_data["engagement_b"].append(total_b)
+                chart_data["users"].append(users)
+
+            # Update the chart
+            chart_empty.line_chart(chart_data, x="users", y=["engagement_a", "engagement_b"])
+
+            # Calculate statistical confidence
+            like_winner, like_confidence = calc_confidence(users, like_a, like_b)
+            like_empty.write(f"{like_confidence:.2f}% Vers. {like_winner}")
+
+            comment_winner, comment_confidence = calc_confidence(users, comment_a, comment_b)
+            comment_empty.write(f"{comment_confidence:.2f}% Vers. {comment_winner}")
+
+            share_winner, share_confidence = calc_confidence(users, share_a, share_b)
+            share_empty.write(f"{share_confidence:.2f}% Vers. {share_winner}")
+
+            quote_winner, quote_confidence = calc_confidence(users, quote_a, quote_b)
+            quote_empty.write(f"{quote_confidence:.2f}% Vers. {quote_winner}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
