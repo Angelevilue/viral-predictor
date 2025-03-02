@@ -9,8 +9,11 @@ from openai import AsyncOpenAI
 
 st.set_page_config(layout="wide")
 st.title("Viral Predictor")
-st.write("**Simulate how users react to your content so you know it'll go viral before you post**")
+st.write("##### Simulate how users react to your content so you know it'll go viral before you post")
 # set page to wide
+video_col = st.columns([1.5,2.5,1.5])[1]
+video_col.write("#### Example usage")
+video_col.video("example.mp4")
 def calc_confidence(users, vote_a, vote_b):
     if vote_a == 0 and vote_b == 0:
         return "-", 0.0
