@@ -90,18 +90,46 @@ quote_empty = quote_col.empty()
 quote_empty.write("0% Vers. ?")
 
 async def get_prediction(prompt, model):
-    completion = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        response_format={"type": "json_object"}
-    )
-    prediction = completion.choices[0].message.content
-    return json.loads(prediction)
+    max_retries = 3
+    retry_delay = 1
+    
+    for attempt in range(max_retries):
+        try:
+            completion = await client.chat.completions.create(
+                model=model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                response_format={"type": "json_object"}
+            )
+            
+            if completion and hasattr(completion, 'choices') and completion.choices and len(completion.choices) > 0:
+                prediction = completion.choices[0].message.content
+                return json.loads(prediction)
+            else:
+                # If we get an empty response, log it and retry
+                print(f"Empty response received on attempt {attempt+1}, retrying...")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                    continue
+                else:
+                    # Return a default response if all retries fail
+                    print("All retries failed, returning default response")
+                    return {"like": False, "comment": False, "share": False, "quote": False}
+        except Exception as e:
+            print(f"Error on attempt {attempt+1}: {str(e)}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+                continue
+            else:
+                # Return a default response if all retries fail
+                print("All retries failed, returning default response")
+                return {"like": False, "comment": False, "share": False, "quote": False}
 
 async def main():
     if predict_button:
